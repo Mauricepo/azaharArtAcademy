@@ -511,6 +511,15 @@
     <string name="emulation_edit_layout">Edit Layout</string>
     <string name="emulation_done">Done</string>
     <string name="emulation_button_sliding">Button Sliding</string>
+    <string name="emulation_stylus">Stylus</string>
+    <string name="emulation_stylus_hover_cursor">Show hover cursor</string>
+    <string name="emulation_stylus_lock_overlay">Lock on-screen buttons while drawing</string>
+    <string name="emulation_stylus_stabilizer">Stabilizer</string>
+    <string name="emulation_stylus_stabilizer_off">Off</string>
+    <string name="emulation_stylus_stabilizer_light">Light</string>
+    <string name="emulation_stylus_stabilizer_medium">Medium</string>
+    <string name="emulation_stylus_stabilizer_strong">Strong</string>
+    <string name="emulation_stylus_button">Stylus side button</string>
     <string name="emulation_button_sliding_disabled">Hold originally pressed button</string>
     <string name="emulation_button_sliding_enabled">Hold currently pressed button</string>
     <string name="emulation_button_sliding_alternative">Hold original and currently pressed button</string>

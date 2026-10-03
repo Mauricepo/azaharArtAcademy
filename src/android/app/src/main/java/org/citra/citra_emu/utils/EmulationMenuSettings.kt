@@ -59,6 +59,38 @@ object EmulationMenuSettings {
                 .putBoolean("EmulationMenuSettings_ShowOverlay", value)
                 .apply()
         }
+    var stylusHoverCursor: Boolean
+        get() = preferences.getBoolean("EmulationMenuSettings_StylusHoverCursor", true)
+        set(value) {
+            preferences.edit()
+                .putBoolean("EmulationMenuSettings_StylusHoverCursor", value)
+                .apply()
+        }
+    var stylusLockOverlay: Boolean
+        get() = preferences.getBoolean("EmulationMenuSettings_StylusLockOverlay", false)
+        set(value) {
+            preferences.edit()
+                .putBoolean("EmulationMenuSettings_StylusLockOverlay", value)
+                .apply()
+        }
+
+    // 0 = off, 1 = light, 2 = medium, 3 = strong
+    var stylusStabilizer: Int
+        get() = preferences.getInt("EmulationMenuSettings_StylusStabilizer", 0)
+        set(value) {
+            preferences.edit()
+                .putInt("EmulationMenuSettings_StylusStabilizer", value)
+                .apply()
+        }
+
+    // NativeLibrary.ButtonType id, -1 = none
+    var stylusButtonMapping: Int
+        get() = preferences.getInt("EmulationMenuSettings_StylusButtonMapping", -1)
+        set(value) {
+            preferences.edit()
+                .putInt("EmulationMenuSettings_StylusButtonMapping", value)
+                .apply()
+        }
     var drawerLockMode: Int
         get() = preferences.getInt(
             "EmulationMenuSettings_DrawerLockMode",

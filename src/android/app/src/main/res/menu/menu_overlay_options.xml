@@ -108,6 +108,27 @@
     </group>
 
     <item
+        android:id="@+id/menu_emulation_stylus"
+        android:title="@string/emulation_stylus">
+        <menu>
+            <item
+                android:id="@+id/menu_emulation_stylus_hover_cursor"
+                android:checkable="true"
+                android:title="@string/emulation_stylus_hover_cursor" />
+            <item
+                android:id="@+id/menu_emulation_stylus_lock_overlay"
+                android:checkable="true"
+                android:title="@string/emulation_stylus_lock_overlay" />
+            <item
+                android:id="@+id/menu_emulation_stylus_stabilizer"
+                android:title="@string/emulation_stylus_stabilizer" />
+            <item
+                android:id="@+id/menu_emulation_stylus_button"
+                android:title="@string/emulation_stylus_button" />
+        </menu>
+    </item>
+
+    <item
         android:id="@+id/menu_emulation_reset_overlay"
         android:title="@string/emulation_touch_overlay_reset" />
 

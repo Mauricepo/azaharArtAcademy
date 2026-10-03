@@ -745,6 +745,10 @@ class EmulationFragment :
                 EmulationMenuSettings.joystickRelCenter
             findItem(R.id.menu_emulation_dpad_slide_enable).isChecked =
                 EmulationMenuSettings.dpadSlide
+            findItem(R.id.menu_emulation_stylus_hover_cursor).isChecked =
+                EmulationMenuSettings.stylusHoverCursor
+            findItem(R.id.menu_emulation_stylus_lock_overlay).isChecked =
+                EmulationMenuSettings.stylusLockOverlay
         }
 
         popupMenu.setOnMenuItemClickListener {
@@ -903,6 +907,28 @@ class EmulationFragment :
                     true
                 }
 
+                R.id.menu_emulation_stylus_hover_cursor -> {
+                    EmulationMenuSettings.stylusHoverCursor =
+                        !EmulationMenuSettings.stylusHoverCursor
+                    true
+                }
+
+                R.id.menu_emulation_stylus_lock_overlay -> {
+                    EmulationMenuSettings.stylusLockOverlay =
+                        !EmulationMenuSettings.stylusLockOverlay
+                    true
+                }
+
+                R.id.menu_emulation_stylus_stabilizer -> {
+                    showStylusStabilizerMenu()
+                    true
+                }
+
+                R.id.menu_emulation_stylus_button -> {
+                    showStylusButtonMenu()
+                    true
+                }
+
                 else -> true
             }
         }
@@ -935,6 +961,70 @@ class EmulationFragment :
         }
 
         popupMenu.show()
+    }
+
+    private fun showStylusStabilizerMenu() {
+        val levels = arrayOf(
+            getString(R.string.emulation_stylus_stabilizer_off),
+            getString(R.string.emulation_stylus_stabilizer_light),
+            getString(R.string.emulation_stylus_stabilizer_medium),
+            getString(R.string.emulation_stylus_stabilizer_strong)
+        )
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.emulation_stylus_stabilizer)
+            .setSingleChoiceItems(levels, EmulationMenuSettings.stylusStabilizer) {
+                    _: DialogInterface?, which: Int ->
+                EmulationMenuSettings.stylusStabilizer = which
+            }
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+    }
+
+    private fun showStylusButtonMenu() {
+        val buttonIds = intArrayOf(
+            -1,
+            NativeLibrary.ButtonType.BUTTON_A,
+            NativeLibrary.ButtonType.BUTTON_B,
+            NativeLibrary.ButtonType.BUTTON_X,
+            NativeLibrary.ButtonType.BUTTON_Y,
+            NativeLibrary.ButtonType.TRIGGER_L,
+            NativeLibrary.ButtonType.TRIGGER_R,
+            NativeLibrary.ButtonType.BUTTON_ZL,
+            NativeLibrary.ButtonType.BUTTON_ZR,
+            NativeLibrary.ButtonType.BUTTON_START,
+            NativeLibrary.ButtonType.BUTTON_SELECT,
+            NativeLibrary.ButtonType.DPAD_UP,
+            NativeLibrary.ButtonType.DPAD_DOWN,
+            NativeLibrary.ButtonType.DPAD_LEFT,
+            NativeLibrary.ButtonType.DPAD_RIGHT
+        )
+        val dpad = getString(R.string.controller_dpad)
+        val names = arrayOf(
+            getString(R.string.none),
+            getString(R.string.button_a),
+            getString(R.string.button_b),
+            getString(R.string.button_x),
+            getString(R.string.button_y),
+            getString(R.string.button_l),
+            getString(R.string.button_r),
+            getString(R.string.button_zl),
+            getString(R.string.button_zr),
+            getString(R.string.button_start),
+            getString(R.string.button_select),
+            "$dpad ${getString(R.string.direction_up)}",
+            "$dpad ${getString(R.string.direction_down)}",
+            "$dpad ${getString(R.string.direction_left)}",
+            "$dpad ${getString(R.string.direction_right)}"
+        )
+        val current = buttonIds.indexOf(EmulationMenuSettings.stylusButtonMapping)
+            .coerceAtLeast(0)
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.emulation_stylus_button)
+            .setSingleChoiceItems(names, current) { _: DialogInterface?, which: Int ->
+                EmulationMenuSettings.stylusButtonMapping = buttonIds[which]
+            }
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
     }
 
     private fun showButtonSlidingMenu() {

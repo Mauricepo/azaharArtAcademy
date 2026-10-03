@@ -936,7 +936,7 @@ jboolean Java_org_citra_citra_1emu_NativeLibrary_onTouchEvent([[maybe_unused]] J
 void Java_org_citra_citra_1emu_NativeLibrary_onTouchMoved([[maybe_unused]] JNIEnv* env,
                                                           [[maybe_unused]] jobject obj, jfloat x,
                                                           jfloat y) {
-    window->OnTouchMoved((int)x, (int)y);
+    window->OnTouchMoved(static_cast<int>(x + 0.5), static_cast<int>(y + 0.5));
 }
 
 jboolean Java_org_citra_citra_1emu_NativeLibrary_onSecondaryTouchEvent([[maybe_unused]] JNIEnv* env,

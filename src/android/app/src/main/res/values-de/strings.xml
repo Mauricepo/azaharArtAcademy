@@ -818,4 +818,13 @@
     <string name="decompress">Dekomprimiere</string>
     <string name="decompressing">Wird dekomprimiert...</string>
     <string name="compress_success">Alle Dateien wurden erfolgreich komprimiert.</string>
+    <string name="emulation_stylus">Stift</string>
+    <string name="emulation_stylus_hover_cursor">Schwebe-Cursor anzeigen</string>
+    <string name="emulation_stylus_lock_overlay">Bildschirmtasten beim Zeichnen sperren</string>
+    <string name="emulation_stylus_stabilizer">Stabilisator</string>
+    <string name="emulation_stylus_stabilizer_off">Aus</string>
+    <string name="emulation_stylus_stabilizer_light">Leicht</string>
+    <string name="emulation_stylus_stabilizer_medium">Mittel</string>
+    <string name="emulation_stylus_stabilizer_strong">Stark</string>
+    <string name="emulation_stylus_button">Stift-Seitentaste</string>
     </resources>

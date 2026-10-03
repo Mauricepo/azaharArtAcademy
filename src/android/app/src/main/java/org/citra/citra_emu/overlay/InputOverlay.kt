@@ -11,6 +11,8 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.drawable.VectorDrawable
 import android.util.AttributeSet
@@ -23,6 +25,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.preference.PreferenceManager
 import java.lang.NullPointerException
+import kotlin.math.hypot
 import kotlin.math.min
 import org.citra.citra_emu.CitraApplication
 import org.citra.citra_emu.NativeLibrary
@@ -55,6 +58,39 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) :
     // Stores the ID of the pointer that interacted with the 3DS touchscreen.
     private var touchscreenPointerId = -1
 
+    // Palm rejection: time (MotionEvent.eventTime, ms) a stylus last touched or hovered.
+    // While a stylus is in use, fingers/palms are ignored for the 3DS touchscreen
+    // (on-screen buttons still work with fingers).
+    private var lastStylusEventTime = Long.MIN_VALUE / 2
+
+    // Hover cursor: where a hovering stylus would touch down
+    private var hoverCursorVisible = false
+    private var hoverCursorX = 0f
+    private var hoverCursorY = 0f
+    private val hoverCursorOuterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.BLACK
+        alpha = 170
+    }
+    private val hoverCursorInnerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.WHITE
+    }
+
+    // Stylus side button, mapped to a 3DS button (-1 = none)
+    private var stylusButtonPressedId = -1
+
+    // Stabilizer ("lazy brush"): the position sent to the 3DS trails the stylus on a string
+    private var stabilizedX = 0f
+    private var stabilizedY = 0f
+
+    // Lift debounce: a stylus losing contact for a few ms doesn't end the stroke
+    private var touchReleasePending = false
+    private val releaseTouchRunnable = Runnable {
+        touchReleasePending = false
+        NativeLibrary.onTouchEvent(0f, 0f, false)
+    }
+
     init {
         if (!preferences.getBoolean("OverlayInit", false)) {
             defaultOverlay()
@@ -81,6 +117,7 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) :
         overlayButtons.forEach { it.draw(canvas) }
         overlayDpads.forEach { it.draw(canvas) }
         overlayJoysticks.forEach { it.draw(canvas) }
+        drawHoverCursor(canvas)
     }
 
     private fun swapScreen() {
@@ -103,6 +140,30 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) :
             return onTouchWhileEditing(event)
         }
 
+        // Deliver every digitizer sample as soon as it arrives instead of batching
+        // them once per display frame. More touch samples and lower latency.
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            requestUnbufferedDispatch(event)
+        }
+
+        for (i in 0 until event.pointerCount) {
+            if (isStylusPointer(event, i)) {
+                lastStylusEventTime = event.eventTime
+                break
+            }
+        }
+        val palmRejectionActive =
+            event.eventTime - lastStylusEventTime < PALM_REJECTION_GRACE_MS
+        val lockOverlayForPalm = EmulationMenuSettings.stylusLockOverlay
+
+        if (isStylusPointer(event, event.actionIndex)) {
+            updateStylusButton(event)
+            if (hoverCursorVisible) {
+                hoverCursorVisible = false
+                invalidate()
+            }
+        }
+
         val motionEvent = event.action and MotionEvent.ACTION_MASK
         val isActionDown =
             motionEvent == MotionEvent.ACTION_DOWN || motionEvent == MotionEvent.ACTION_POINTER_DOWN
@@ -122,8 +183,13 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) :
         for (pointerIndex in pointerList) {
             val pointerId = event.getPointerId(pointerIndex)
 
-            var xPosition = event.getX(pointerIndex).toInt()
-            var yPosition = event.getY(pointerIndex).toInt()
+            // Keep sub-pixel precision, rounding happens on the native side.
+            var xPosition = event.getX(pointerIndex)
+            var yPosition = event.getY(pointerIndex)
+
+            // Fingers/palms are ignored for the 3DS touchscreen while a stylus is in use
+            val isStylus = isStylusPointer(event, pointerIndex)
+            val ignoreForTouchscreen = palmRejectionActive && !isStylus
 
             if (BooleanSetting.EXPAND_TO_CUTOUT_AREA.boolean) {
                 val cutout = ViewCompat.getRootWindowInsets(this)?.displayCutout
@@ -163,19 +229,31 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) :
 
             val hasActiveOverlay = hasActiveButtons || hasActiveDpad || hasActiveJoystick
 
-            if (preferences.getBoolean("isTouchEnabled", true) && !hasActiveOverlay) {
+            // Optionally a resting palm can't press on-screen buttons while drawing either
+            val blockOverlay = lockOverlayForPalm && ignoreForTouchscreen && !hasActiveOverlay
+
+            if (preferences.getBoolean("isTouchEnabled", true) && !hasActiveOverlay &&
+                !ignoreForTouchscreen
+            ) {
                 if (isActionMove) {
-                    NativeLibrary.onTouchMoved(xPosition.toFloat(), yPosition.toFloat())
+                    stabilize(xPosition, yPosition, false)
+                    NativeLibrary.onTouchMoved(stabilizedX, stabilizedY)
                     continue
                 } else if (isActionUp) {
-                    NativeLibrary.onTouchEvent(0f, 0f, false)
+                    if (isStylus) {
+                        touchReleasePending = true
+                        postDelayed(releaseTouchRunnable, STYLUS_LIFT_DEBOUNCE_MS)
+                    } else {
+                        cancelPendingTouchRelease()
+                        NativeLibrary.onTouchEvent(0f, 0f, false)
+                    }
                     break // Up and down actions shouldn't loop
                 }
             }
 
             var anyOverlayStateChanged = false
             var shouldUpdateView = false
-            if (!hasActiveDpad && !hasActiveJoystick) {
+            if (!hasActiveDpad && !hasActiveJoystick && !blockOverlay) {
                 for (button in overlayButtons) {
                     val stateChanged = button.updateStatus(
                         event,
@@ -210,7 +288,7 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) :
                 }
             }
 
-            if (!hasActiveButtons && !hasActiveJoystick) {
+            if (!hasActiveButtons && !hasActiveJoystick && !blockOverlay) {
                 for (dpad in overlayDpads) {
                     val stateChanged = dpad.updateStatus(
                         event,
@@ -249,7 +327,7 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) :
                 }
             }
 
-            if (!hasActiveDpad && !hasActiveButtons) {
+            if (!hasActiveDpad && !hasActiveButtons && !blockOverlay) {
                 for (joystick in overlayJoysticks) {
                     val stateChanged = joystick.updateStatus(
                         event,
@@ -280,7 +358,8 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) :
 
             if (preferences.getBoolean("isTouchEnabled", true) &&
                 isActionDown &&
-                !anyOverlayStateChanged
+                !anyOverlayStateChanged &&
+                !ignoreForTouchscreen
             ) {
                 // These need to be recalculated because touching the area
                 // right in the middle of the dpad (between the "buttons") or
@@ -302,7 +381,11 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) :
                 }
 
                 if (!isDpadPressed && !isJoystickPressed) {
-                    NativeLibrary.onTouchEvent(xPosition.toFloat(), yPosition.toFloat(), true)
+                    // A stylus touching down right after lifting continues the same stroke
+                    val continuesStroke = touchReleasePending
+                    cancelPendingTouchRelease()
+                    stabilize(xPosition, yPosition, !continuesStroke)
+                    NativeLibrary.onTouchEvent(stabilizedX, stabilizedY, true)
                 }
             }
 
@@ -312,6 +395,112 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) :
             }
         }
         return true
+    }
+
+    override fun onHoverEvent(event: MotionEvent): Boolean {
+        // A hovering stylus (USI pens report hover) keeps palm rejection active
+        if (isStylusPointer(event, 0)) {
+            lastStylusEventTime = event.eventTime
+            updateStylusButton(event)
+
+            val showCursor = EmulationMenuSettings.stylusHoverCursor &&
+                event.actionMasked != MotionEvent.ACTION_HOVER_EXIT
+            if (showCursor) {
+                hoverCursorX = event.x
+                hoverCursorY = event.y
+            }
+            if (showCursor || hoverCursorVisible) {
+                hoverCursorVisible = showCursor
+                invalidate()
+            }
+        }
+        return super.onHoverEvent(event)
+    }
+
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        // Side button presses while hovering arrive as ACTION_BUTTON_PRESS/RELEASE
+        if (isStylusPointer(event, 0)) {
+            updateStylusButton(event)
+        }
+        return super.onGenericMotionEvent(event)
+    }
+
+    private fun updateStylusButton(event: MotionEvent) {
+        val sideButtonDown = (
+            event.buttonState and
+                (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_SECONDARY)
+            ) != 0
+        if (sideButtonDown && stylusButtonPressedId == -1) {
+            val mapped = EmulationMenuSettings.stylusButtonMapping
+            if (mapped != -1) {
+                stylusButtonPressedId = mapped
+                NativeLibrary.onGamePadEvent(
+                    NativeLibrary.TOUCHSCREEN_DEVICE,
+                    mapped,
+                    NativeLibrary.ButtonState.PRESSED
+                )
+            }
+        } else if (!sideButtonDown && stylusButtonPressedId != -1) {
+            NativeLibrary.onGamePadEvent(
+                NativeLibrary.TOUCHSCREEN_DEVICE,
+                stylusButtonPressedId,
+                NativeLibrary.ButtonState.RELEASED
+            )
+            stylusButtonPressedId = -1
+        }
+    }
+
+    private fun stabilize(x: Float, y: Float, reset: Boolean) {
+        val radius = when (EmulationMenuSettings.stylusStabilizer) {
+            1 -> 4f
+            2 -> 8f
+            3 -> 14f
+            else -> 0f
+        } * resources.displayMetrics.density
+        if (reset || radius <= 0f) {
+            stabilizedX = x
+            stabilizedY = y
+            return
+        }
+        val dx = x - stabilizedX
+        val dy = y - stabilizedY
+        val distance = hypot(dx, dy)
+        if (distance > radius) {
+            val factor = (distance - radius) / distance
+            stabilizedX += dx * factor
+            stabilizedY += dy * factor
+        }
+    }
+
+    private fun cancelPendingTouchRelease() {
+        if (touchReleasePending) {
+            removeCallbacks(releaseTouchRunnable)
+            touchReleasePending = false
+        }
+    }
+
+    private fun drawHoverCursor(canvas: Canvas) {
+        if (!hoverCursorVisible) {
+            return
+        }
+        val density = resources.displayMetrics.density
+        val radius = 6f * density
+        val arm = 11f * density
+        hoverCursorOuterPaint.strokeWidth = 3.5f * density
+        hoverCursorInnerPaint.strokeWidth = 1.5f * density
+        for (paint in arrayOf(hoverCursorOuterPaint, hoverCursorInnerPaint)) {
+            canvas.drawCircle(hoverCursorX, hoverCursorY, radius, paint)
+            canvas.drawLine(hoverCursorX - arm, hoverCursorY, hoverCursorX - radius, hoverCursorY, paint)
+            canvas.drawLine(hoverCursorX + radius, hoverCursorY, hoverCursorX + arm, hoverCursorY, paint)
+            canvas.drawLine(hoverCursorX, hoverCursorY - arm, hoverCursorX, hoverCursorY - radius, paint)
+            canvas.drawLine(hoverCursorX, hoverCursorY + radius, hoverCursorX, hoverCursorY + arm, paint)
+        }
+    }
+
+    private fun isStylusPointer(event: MotionEvent, pointerIndex: Int): Boolean {
+        val toolType = event.getToolType(pointerIndex)
+        return toolType == MotionEvent.TOOL_TYPE_STYLUS ||
+            toolType == MotionEvent.TOOL_TYPE_ERASER
     }
 
     fun onTouchWhileEditing(event: MotionEvent): Boolean {
@@ -1011,6 +1200,13 @@ class InputOverlay(context: Context?, attrs: AttributeSet?) :
     override fun isInEditMode(): Boolean = isInEditMode
 
     companion object {
+        // How long fingers stay ignored on the 3DS touchscreen after the last stylus
+        // contact or hover
+        private const val PALM_REJECTION_GRACE_MS = 1500L
+
+        // How long a stylus may lose contact without ending the stroke
+        private const val STYLUS_LIFT_DEBOUNCE_MS = 20L
+
         private val preferences
             get() = PreferenceManager.getDefaultSharedPreferences(CitraApplication.appContext)
 
